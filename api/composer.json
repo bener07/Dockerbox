@@ -1,0 +1,21 @@
+{
+    "name": "bener07/phpsframework",
+    "description": "A small php framework with routing template and all sord of things",
+    "type": "project",
+    "require": {
+        "twig/twig": "3.x-dev"
+    },
+    "license": "GPL",
+    "autoload": {
+        "psr-4": {
+            "Bener07\\Phpsframework\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "bener07",
+            "email": "bernandre07@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev"
+}

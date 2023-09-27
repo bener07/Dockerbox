@@ -1,0 +1,18 @@
+version: '3'
+services:
+  api:
+    build: ./builds/nginx
+    ports:
+      - 8082:8080
+    volumes:
+      - ./api:/app
+  frontend:
+    build: ./builds/vue
+    ports:
+      - 8080:8080
+    volumes:
+      - ./frontend:/app
+    links:
+      - api:api
+    depends_on:
+      - api
