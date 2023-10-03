@@ -2,11 +2,18 @@
 
 
 $routes = [];
-include 'routes.php';
-include 'vendor/autoload.php';
+include '../routes/routes.php';
+include '../../vendor/autoload.php';
 
 $templatesDir = '../templates';
 
+
+class Method {
+    public $method;
+    public function __construct($method){
+        $this->method = $method;
+    }
+}
 
 
 
@@ -24,10 +31,21 @@ class Request{
         $this->uri = $_SERVER['REQUEST_URI'];
         $this->method = $_SERVER['REQUEST_METHOD'];
         $this->headers = getallheaders();
-        $this->query = $_GET;
-        $this->formData = $_POST;
-        $this->parseRouteParams();
-        $this->parseRequestBody();
+        $this->query = $this->loadRequestData($_GET);
+        $this->formData = $this->loadRequestData($_POST);
+        // $this->parseRouteParams();
+        // $this->parseRequestBody();
+    }
+
+    protected function loadRequestData($method){
+        $params = new Method($_SERVER['REQUEST_METHOD']);
+        foreach($method as $index => $data){
+            $params->$index = $data;
+        }
+        // echo "<pre>";
+        // print_r($params);
+        // echo "</pre>";
+        return $params;
     }
 
     public function getUri(){
@@ -51,18 +69,20 @@ class Request{
     public function getBody(){
         return $this->body;
     }
-    public function parseRouteParams(){
-        // this is where you define a pattern to search inside the URI
-        // and then return the params inside so that it may be pass to something else
-        $this->routeParams = ['id' => "1234"];
-    }
-    public function parseRequestBody(){
-        // handle the POST or PUT methods and set the body of them
-        // im not going to use this for now
-        $this->body = "Remember to change this!";
-    }
-}
+    // not necessary
+    // public function parseRouteParams(){
+    //     // this is where you define a pattern to search inside the URI
+    //     // and then return the params inside so that it may be pass to something else
+    //     $this->routeParams = ['id' => "1234"];
+    // }
 
+    // not necesary right now
+    // public function parseRequestBody(){
+    //     // handle the POST or PUT methods and set the body of them
+    //     // im not going to use this for now
+    //     $this->body = "Remember to change this!";
+    // }
+}
 
 
 
@@ -115,39 +135,54 @@ class Response{
 
 
 
-
-
 class Route{
     protected $controller;
     protected $action;
-    protected $method;
+    protected $uri;
+    protected $methods;
     protected $middleware;
 
-    public function __construct($method, $controller, $action, $middleware=null){
-        $this->method = $method;
+    public function __construct($methods, $uri, $controller, $action, $middleware=null){
         $this->controller = $controller;
         $this->action = $action;
         $this->middleware = $middleware;
+        $this->uri = $uri;
+        $this->methods = $this->loadMethods($methods);
+    }
+    protected function loadMethods($methods){
+        $response_methods = array();
+        $methods = is_array($methods) ? $methods : [$methods];
+        foreach($methods as $method){
+            $response_methods[$method] = $this->controller."@".$this->action;
+        }
+        return $response_methods;
     }
     public function getController(){
+        [$this->controller, $this->action] = explode('@', $this->methods[$_SERVER["REQUEST_METHOD"]]);
         return $this->controller;
     }
     public function getAction(){
         return $this->action;
     }
-    public function getMethod(){
-        return $this->method;
+    public function getMethods(){
+        return array_keys($this->methods);
+    }
+    public function getMethod($method){
+        return $this->methods[$method];
+    }
+    public function getUri(){
+        return $this->uri;
     }
     public function setMiddleware($middleware){
-        echo $middleware;
         $this->middleware = $middleware;
     }
     public function getMiddleware(){
         return $this->middleware;
     }
+    public function addMethod($method, $controller, $action){
+        $this->methods[$method] = $controller."@".$action;
+    }
 }
-
-
 
 
 
@@ -160,15 +195,28 @@ class Router{
     protected $prefix;
 
     public function get($uri, $controllerAction){
-        [$controller, $action] = explode('@', $controllerAction);
-        # echo ($this->prefix? $this->prefix.$uri : $uri)."<br>";
-        #echo $this->prefix."<br>";
-        $this->routes['GET'][($this->prefix? $this->prefix.$uri : $uri)] = new Route('GET', $controller, $action);
+        $this->registerRoute($uri, $controllerAction, 'GET');
     }
 
     public function post($uri, $controllerAction){
+        $this->registerRoute($uri, $controllerAction, 'POST');
+    }
+
+    protected function registerRoute($uri, $controllerAction, $method){
         [$controller, $action] = explode('@', $controllerAction);
-        $this->routes['POST'][($this->prefix? $this->prefix.$uri : $uri)] = new Route('POST', $controller, $action);
+
+        // get the route if exists
+        $uri_prefix = ($this->prefix? $this->prefix.$uri : $uri);
+
+        // check if the route exists
+        if(isset($this->routes[$uri_prefix]))
+
+            // add the method to the route
+            $this->routes[$uri_prefix]->addMethod($method, $controller, $action);
+
+        // create the route
+        else
+            $this->routes[($this->prefix? $this->prefix.$uri : $uri)] = new Route($method, $uri, $controller, $action);
     }
 
     public function group($prefix, $callback, $middleware=null){
@@ -181,36 +229,31 @@ class Router{
 
         // register the routes inside the group
         $callback($router);
-        return $router;
-    }
 
-    public function setMiddleware($middleware){
-        // echo "<pre>";
-        // print_r($GLOBALS['router']);
-        // echo "</pre>";
-        foreach($this->routes as $route => $route_index){
-            $method = $route->getMethod();
-            $GLOBALS['routes'][$method][$route_index]->setMiddleware($middleware);
+        // iterate trough the router routes and register them on the main router
+        foreach($router->routes as $uri => $route){
+            // set the middleware if exists
+            $route->setMiddleware($middleware);
+            $this->routes[$uri] = $route;
         }
+
+        // returns the router for future implementation
+        return $router;
     }
 
     public static function route(Request $request){
         // get the method from the request
-        $method = $request->getMethod();
         $uri = parse_url($request->getUri(), PHP_URL_PATH);
 
         // check if the route exists
-        if (isset($GLOBALS['router']->routes[$method][$uri])){
-            return $GLOBALS['router']->routes[$method][$uri];
+        if (isset($GLOBALS['router']->routes[$uri])){
+            return $GLOBALS['router']->routes[$uri];
         }
 
         // in case the route doesn't exist it returns null
         return null;
     }
 }
-
-
-
 
 
 
@@ -224,13 +267,23 @@ class Kernel{
     }
 
     protected function handleRequest($request){
-        // send the request to the right controller
+        // assigns a request to the registered controller
         $route = $this->routeRequest($request);
 
         // if the route does not exist it returns a 404 Response
         if ($route instanceof Response)
             return $route;
+
         $request = $this->handleMiddleware($request, $route);
+
+        // if the middleware responds with a Response like 401, or any other responses
+        // returns the reponse made by it
+        if ($request instanceof Response)
+            return $request;
+
+        if (!$this->verifyMethod($request, $route)){
+            return new Response('Method not allowed', 405);
+        }
 
         // create instance of the controller
         $controller = $this->createController($route);
@@ -243,14 +296,22 @@ class Kernel{
     }
 
     protected function handleMiddleware(Request $request, Route $route){
-        echo $route->getMiddleware();
-#        [$middleware, $action] = explode('@', $route->getMiddleware());
+        // get the middleware
+        $middleware = $route->getMiddleware();
 
-        // if(gettype($middleware) != NULL){
-        //     echo "Hello";
-        //     return $this->callAction($middleware, $action, $request);
-        // }
-        return $request;
+        // verify if the route has a middleware
+        if (!$middleware)
+            // returns the request
+            return $request;
+
+        // separeate the middleware and the action
+        [$middleware, $action] = explode('@', $middleware);
+
+        // create an instance of a middleware
+        $middleware = $this->createMiddleware($middleware);
+
+        // call the middleware and the action
+        return $this->callAction($middleware, $action, $request);
     }
     protected function routeRequest(Request $request){
 
@@ -269,10 +330,19 @@ class Kernel{
         return $route;
     }
 
+    protected function verifyMethod(Request $request, Route $route){
+        // confirm if the route allows the method requested
+        return in_array($request->getMethod(), $route->getMethods());
+    }
+
     protected function createController(Route $route){
         // create an instance of the controller based on the route
         $controllerName = $route->getController();
         return new $controllerName;
+    }
+
+    protected function createMiddleware($middleware){
+        return new $middleware;
     }
 
     protected function callAction($controller, $action, Request $request){
@@ -286,7 +356,7 @@ function loadDirectory($directory){
     foreach (scandir($directory) as $File)
     {
         if ($File!= '.' && $File!= '..'){
-            require $directory.'/'.$File;
+            include $directory.'/'.$File;
         }
     }
 }

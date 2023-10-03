@@ -2,6 +2,6 @@
 
 class HomeController {
     public function index(Request $request){
-        return new Response("Home controller");
+        return new Response("Yello");
     }
 }
