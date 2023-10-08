@@ -1,12 +1,34 @@
-version: '3'
 services:
+
   api:
     build: ./builds/nginx
+    links:
+      - "engine:engine"
     ports:
       - 8082:8080
     volumes:
       - ./api:/app
-  frontend:
+    depends_on:
+      - engine
+    networks:
+      - backend
+      - engine
+
+  engine:
+    image: docker
+    command: ["dockerd"]
+    privileged: true
+    ports:
+      - 2376:2376
+    networks:
+      - engine
+    environment:
+      - DOCKER_HOST=tcp://0.0.0.0:2376
+    volumes:
+      - ./Engine/certs:/certs
+      - ./Engine/daemon.json:/etc/docker/daemon.json
+
+  vue:
     build: ./builds/vue
     ports:
       - 8080:8080
@@ -16,3 +38,19 @@ services:
       - api:api
     depends_on:
       - api
+    networks:
+      - frontend
+      - backend
+
+
+networks:
+  engine:
+    name: docker_engine_network
+
+  backend:
+    name: backend
+    internal: true
+
+  frontend:
+    name: frontend
+    driver: bridge

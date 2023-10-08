@@ -141,13 +141,15 @@ class Route{
     protected $uri;
     protected $methods;
     protected $middleware;
+    protected $pattern;
 
-    public function __construct($methods, $uri, $controller, $action, $middleware=null){
+    public function __construct($methods, $uri, $controller, $action, $middleware=null, $pattern=''){
         $this->controller = $controller;
         $this->action = $action;
         $this->middleware = $middleware;
         $this->uri = $uri;
         $this->methods = $this->loadMethods($methods);
+        $this->pattern = $pattern;
     }
     protected function loadMethods($methods){
         $response_methods = array();
@@ -172,6 +174,9 @@ class Route{
     }
     public function getUri(){
         return $this->uri;
+    }
+    public function getPattern(){
+        return $this->pattern;
     }
     public function setMiddleware($middleware){
         $this->middleware = $middleware;
@@ -202,8 +207,10 @@ class Router{
         $this->registerRoute($uri, $controllerAction, 'POST');
     }
 
-    protected function registerRoute($uri, $controllerAction, $method){
+    protected function registerRoute($uri, $controllerAction, $method, $middleware=null){
         [$controller, $action] = explode('@', $controllerAction);
+        // separate the uri and the regex pattern
+        [$pattern, $uri] = [$uri, rtrim(preg_replace('/[.\\^$*+?()[\]{}|\\\\]/', '', $uri), '/')];
 
         // get the route if exists
         $uri_prefix = ($this->prefix? $this->prefix.$uri : $uri);
@@ -216,7 +223,7 @@ class Router{
 
         // create the route
         else
-            $this->routes[($this->prefix? $this->prefix.$uri : $uri)] = new Route($method, $uri, $controller, $action);
+            $this->routes[($this->prefix? $this->prefix.$uri : $uri)] = new Route($method, $uri, $controller, $action, $middleware, $pattern);
     }
 
     public function group($prefix, $callback, $middleware=null){
@@ -245,13 +252,28 @@ class Router{
         // get the method from the request
         $uri = parse_url($request->getUri(), PHP_URL_PATH);
 
-        // check if the route exists
-        if (isset($GLOBALS['router']->routes[$uri])){
-            return $GLOBALS['router']->routes[$uri];
-        }
+        // stores the route
+        foreach($GLOBALS['router']->routes as $route => $routeObject){
 
-        // in case the route doesn't exist it returns null
-        return null;
+            // converts the route uri into a pattern
+            $pattern = $routeObject->getPattern();
+            $pattern = '^'.$pattern.'?$^';
+
+            preg_match($pattern, $request->getUri(), $matches);
+        }
+        // echo "<pre>";
+        // remove the regex patterns and the last / of the uri
+        $uri = rtrim(str_replace($matches[1], '', $uri), '/');
+
+        // check if the route exists
+        if (!isset($GLOBALS['router']->routes[$uri]))
+            // in case the route doesn't exist it returns null
+            return null;
+
+        // get the route
+        $route = $GLOBALS['router']->routes[$uri];
+        $request->matches = $matches[1];
+        return $route;
     }
 }
 
@@ -342,6 +364,7 @@ class Kernel{
     }
 
     protected function createMiddleware($middleware){
+        // create an instance of the middleware
         return new $middleware;
     }
 
@@ -360,6 +383,9 @@ function loadDirectory($directory){
         }
     }
 }
+
+// load Docker engine
+loadDirectory('../Docker');
 
 // load the Controllers
 loadDirectory("../Controllers");
